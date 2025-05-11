@@ -7,6 +7,7 @@ name = "pypi"
 # Ajoutez vos dépendances de production ici
 requests = "*"
 dasbus = "*"
+PyGObject = "*"
 pyyaml = "*"
 schedule = "*"
 

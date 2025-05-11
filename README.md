@@ -15,16 +15,34 @@ Application de surveillance météorologique pour contrôler automatiquement EKO
 - Un dispositif météo compatible ASCOM Alpaca avec la méthode `isSafe` implémentée
 - KStars avec EKOS installé et fonctionnel
 - Un système avec D-Bus (généralement présent sur les systèmes Linux)
+- PyGObject et ses dépendances système (nécessaires pour dasbus)
 
 ## Installation
 
-1. Clonez ce dépôt :
+1. Installez les dépendances système nécessaires pour PyGObject (requises par dasbus) :
+
+   **Pour Ubuntu/Debian** :
+   ```bash
+   sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 libgirepository1.0-dev
+   ```
+
+   **Pour Fedora** :
+   ```bash
+   sudo dnf install python3-gobject python3-gobject-devel gobject-introspection-devel cairo-gobject-devel
+   ```
+
+   **Pour Arch Linux** :
+   ```bash
+   sudo pacman -S python-gobject gobject-introspection cairo
+   ```
+
+2. Clonez ce dépôt :
 ```bash
 git clone https://github.com/votre-utilisateur/kstars_monitoring.git
 cd kstars_monitoring
 ```
 
-2. Installez les dépendances Python :
+3. Installez les dépendances Python :
 ```bash
 pip install -r requirements.txt
 ```
@@ -88,14 +106,32 @@ En mode verbeux (debug) :
 python -m src.main --verbose
 ```
 
-## Avantages de dasbus
+## Résolution des problèmes
+
+### Erreur "No module named 'gi'"
+
+Si vous obtenez l'erreur `ModuleNotFoundError: No module named 'gi'`, cela signifie que PyGObject n'est pas correctement installé. Suivez ces étapes :
+
+1. Installez les dépendances système mentionnées dans la section Installation
+2. Réinstallez PyGObject :
+   ```bash
+   pip install --no-binary :all: PyGObject
+   ```
+3. Si l'erreur persiste, essayez d'installer directement via votre gestionnaire de paquets :
+   ```bash
+   # Sur Ubuntu/Debian
+   sudo apt install python3-gi
+   ```
+
+## À propos de dasbus
 
 L'application utilise la bibliothèque dasbus pour communiquer avec EKOS via D-Bus. Dasbus présente plusieurs avantages :
 
-1. Pas de dépendances système complexes - contrairement à d'autres bibliothèques D-Bus pour Python (comme pydbus qui nécessite PyGObject), dasbus est une solution 100% Python
-2. Interface moderne et pythonique
-3. Gestion améliorée des erreurs avec des exceptions spécifiques
-4. Support pour les types complexes D-Bus
+1. Interface moderne et pythonique pour D-Bus
+2. Gestion améliorée des erreurs avec des exceptions spécifiques
+3. Support pour les types complexes D-Bus
+
+Bien que dasbus nécessite toujours PyGObject comme dépendance, il offre une API plus propre et plus facile à utiliser que les alternatives.
 
 ## Fonctionnement
 
