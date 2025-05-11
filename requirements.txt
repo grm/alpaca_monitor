@@ -1,5 +1,4 @@
 requests==2.31.0
-dasbus==1.7
-PyGObject==3.46.0
+dbus-next==0.2.3
 pyyaml==6.0
 schedule==1.2.0 

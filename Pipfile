@@ -6,8 +6,7 @@ name = "pypi"
 [packages]
 # Ajoutez vos dépendances de production ici
 requests = "*"
-dasbus = "*"
-PyGObject = "*"
+dbus-next = "*"
 pyyaml = "*"
 schedule = "*"
 

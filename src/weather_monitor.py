@@ -5,6 +5,7 @@
 Module pour monitorer les conditions météorologiques et contrôler EKOS en conséquence.
 """
 
+import asyncio
 import logging
 import signal
 import sys
@@ -38,6 +39,7 @@ class WeatherMonitoringSystem:
         self.ekos_controller = None
         self.last_weather_safe = None
         self.scheduler = schedule
+        self.loop = asyncio.get_event_loop()
         
         logger.info("Système de surveillance météorologique initialisé")
 
@@ -68,7 +70,7 @@ class WeatherMonitoringSystem:
             
             # Configurer la planification des vérifications météo
             poll_interval = alpaca_config.get("poll_interval", 60)  # par défaut 60 secondes
-            self.scheduler.every(poll_interval).seconds.do(self.check_weather_and_update_ekos)
+            self.scheduler.every(poll_interval).seconds.do(self._check_weather_and_update_ekos_wrapper)
             
             logger.info(f"Configuration réussie, vérification météo planifiée toutes les {poll_interval} secondes")
             return True
@@ -77,7 +79,15 @@ class WeatherMonitoringSystem:
             logger.error(f"Échec de la configuration du système: {str(e)}")
             return False
 
-    def check_weather_and_update_ekos(self) -> None:
+    def _check_weather_and_update_ekos_wrapper(self) -> None:
+        """
+        Wrapper pour exécuter la fonction asynchrone check_weather_and_update_ekos
+        dans la boucle asyncio.
+        """
+        if self.running:
+            asyncio.run_coroutine_threadsafe(self.check_weather_and_update_ekos(), self.loop)
+
+    async def check_weather_and_update_ekos(self) -> None:
         """
         Vérifie les conditions météorologiques et met à jour l'état du scheduler EKOS
         en fonction de celles-ci.
@@ -102,11 +112,11 @@ class WeatherMonitoringSystem:
             # Agir en fonction des conditions météorologiques
             if is_weather_safe:
                 logger.info("Conditions météorologiques favorables, démarrage du scheduler EKOS")
-                self.ekos_controller.start_scheduler()
+                await self.ekos_controller.start_scheduler()
             else:
                 logger.warning("Conditions météorologiques défavorables, arrêt du scheduler EKOS")
                 # On utilise abort pour un arrêt immédiat en cas de conditions météo dangereuses
-                self.ekos_controller.abort_scheduler()
+                await self.ekos_controller.abort_scheduler()
                 
         except Exception as e:
             logger.error(f"Erreur lors de la vérification des conditions météorologiques: {str(e)}")
@@ -134,9 +144,10 @@ class WeatherMonitoringSystem:
         if not self.weather_monitor.connect():
             logger.error("Échec du démarrage du système: impossible de se connecter au dispositif météo")
             return False
-            
-        # Connexion à EKOS
-        if not self.ekos_controller.connect():
+        
+        # Connexion à EKOS (async)
+        connect_result = self.loop.run_until_complete(self.ekos_controller.connect())
+        if not connect_result:
             logger.error("Échec du démarrage du système: impossible de se connecter à EKOS")
             self.weather_monitor.disconnect()
             return False
@@ -144,7 +155,7 @@ class WeatherMonitoringSystem:
         self.running = True
         
         # Vérifier les conditions météorologiques immédiatement au démarrage
-        self.check_weather_and_update_ekos()
+        self.loop.run_until_complete(self.check_weather_and_update_ekos())
         
         logger.info("Système de surveillance météorologique démarré avec succès")
         return True
