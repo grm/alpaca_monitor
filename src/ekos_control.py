@@ -171,6 +171,89 @@ class EkosController:
         logger.info("Déconnexion d'EKOS effectuée")
         return True
 
+    async def dbus_property_operation(self, operation: str, interface: str, property_name: str, value=None) -> Any:
+        """
+        Effectue une opération D-Bus sur une propriété de manière sécurisée.
+        
+        Args:
+            operation: L'opération à effectuer (Get, Set, GetAll)
+            interface: Nom de l'interface
+            property_name: Nom de la propriété
+            value: Valeur à définir (uniquement pour Set)
+            
+        Returns:
+            Résultat de l'opération ou None en cas d'erreur
+        """
+        if not self.properties_interface:
+            logger.error(f"Impossible d'effectuer l'opération {operation}: interface Properties non disponible")
+            return None
+            
+        try:
+            logger.debug(f"Tentative d'opération D-Bus {operation} sur {interface}.{property_name}")
+            
+            # Liste des méthodes possibles à essayer dans l'ordre
+            methods = []
+            if operation in ["Get", "Set", "GetAll"]:
+                # Préfixé avec call_
+                methods.append(f"call_{operation}")
+                # Sans préfixe
+                methods.append(operation)
+                
+            # Essayer chaque méthode
+            for method_name in methods:
+                if hasattr(self.properties_interface, method_name):
+                    try:
+                        logger.debug(f"Essai avec la méthode {method_name}")
+                        
+                        # Appeler la méthode avec les bons arguments selon l'opération
+                        if operation == "Get":
+                            result = await getattr(self.properties_interface, method_name)(interface, property_name)
+                        elif operation == "Set":
+                            result = await getattr(self.properties_interface, method_name)(interface, property_name, value)
+                        elif operation == "GetAll":
+                            result = await getattr(self.properties_interface, method_name)(interface)
+                        
+                        logger.debug(f"Opération {method_name} réussie: {result}")
+                        
+                        # Extraire la valeur si c'est un variant
+                        if operation == "Get" and hasattr(result, 'value'):
+                            return result.value
+                        return result
+                        
+                    except Exception as e:
+                        logger.debug(f"Méthode {method_name} a échoué: {str(e)}")
+            
+            # Tentative via D-Bus brut si les autres approches échouent
+            try:
+                # Récupérer un nouveau proxy Properties
+                bus = MessageBus()
+                await bus.connect()
+                
+                proxy = bus.get_proxy_object(
+                    self.dbus_service,
+                    f"{self.dbus_path}/Scheduler",
+                    None  # Pas d'introspection
+                )
+                prop_interface = proxy.get_interface('org.freedesktop.DBus.Properties')
+                
+                if operation == "Get":
+                    result = await prop_interface.call_Get(interface, property_name)
+                    if hasattr(result, 'value'):
+                        return result.value
+                    return result
+                elif operation == "GetAll":
+                    return await prop_interface.call_GetAll(interface)
+                
+            except Exception as e:
+                logger.debug(f"Tentative brute a échoué: {str(e)}")
+                
+            logger.warning(f"Toutes les tentatives d'opération {operation} ont échoué")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de l'opération D-Bus {operation}: {str(e)}")
+            return None
+
     async def get_property(self, interface: str, property_name: str) -> Any:
         """
         Récupère une propriété D-Bus en gérant les différentes API possibles.
@@ -182,33 +265,8 @@ class EkosController:
         Returns:
             Valeur de la propriété ou None en cas d'erreur
         """
-        if not self.properties_interface:
-            return None
-            
-        try:
-            # Essai avec la méthode standard
-            try:
-                variant = await self.properties_interface.Get(interface, property_name)
-                return variant.value
-            except AttributeError:
-                # Essai avec la méthode préfixée call_
-                try:
-                    variant = await self.properties_interface.call_Get(interface, property_name)
-                    return variant.value
-                except AttributeError:
-                    # Essai avec GetAll
-                    try:
-                        all_props = await self.properties_interface.GetAll(interface)
-                        if property_name in all_props:
-                            return all_props[property_name].value
-                    except AttributeError:
-                        # Dernier recours : appel direct à la propriété
-                        if hasattr(self.scheduler, property_name):
-                            return getattr(self.scheduler, property_name)
-        except Exception as e:
-            logger.error(f"Erreur lors de l'accès à la propriété {property_name}: {str(e)}")
-            
-        return None
+        # Utiliser notre nouvelle méthode pour effectuer l'opération Get
+        return await self.dbus_property_operation("Get", interface, property_name)
 
     async def call_method(self, obj: Any, method_name: str, *args, **kwargs) -> Any:
         """
@@ -223,25 +281,56 @@ class EkosController:
             Résultat de l'appel ou None en cas d'erreur
         """
         if not obj:
+            logger.error(f"Impossible d'appeler {method_name}: objet non disponible")
             return None
             
         try:
-            # Essai avec le nom de méthode direct
+            logger.debug(f"Tentative d'appel de la méthode {method_name} sur {obj}")
+            
+            # Essai 1: Appel direct avec le nom de méthode tel quel
             if hasattr(obj, method_name):
+                logger.debug(f"Méthode {method_name} trouvée, appel direct")
                 return await getattr(obj, method_name)(*args, **kwargs)
                 
-            # Essai avec le préfixe call_
+            # Essai 2: Appel avec le préfixe call_
             call_method = f"call_{method_name}"
             if hasattr(obj, call_method):
+                logger.debug(f"Méthode {call_method} trouvée, appel avec préfixe call_")
                 return await getattr(obj, call_method)(*args, **kwargs)
                 
-            # Cas spécial pour les méthodes qui commencent par get/set
-            if method_name.startswith("get") and method_name[3:]:
+            # Essai 3: Cas spécial pour les méthodes qui commencent par get/set (propriétés)
+            if method_name.startswith("get") and len(method_name) > 3:
                 prop_name = method_name[3].lower() + method_name[4:]
-                return await self.get_property(self.scheduler_interface, prop_name)
+                logger.debug(f"Essai d'accès à la propriété {prop_name} via get_property")
+                
+                # Si l'objet est le scheduler, utiliser l'interface Scheduler
+                if obj == self.scheduler:
+                    return await self.get_property(self.scheduler_interface, prop_name)
+                # Si l'objet est l'interface Ekos principale
+                elif obj == self.ekos:
+                    return await self.get_property(self.dbus_interface, prop_name)
+                # Si c'est l'interface Properties elle-même
+                elif obj == self.properties_interface:
+                    # Cas spécial pour Get/GetAll
+                    if method_name == "get":
+                        logger.debug("Cas spécial pour Get")
+                        if len(args) >= 2:
+                            interface, prop = args[0], args[1]
+                            return await self.get_property(interface, prop)
+            
+            # Si rien ne fonctionne, essayer un dernier moyen via get_property pour les méthodes get_*
+            if method_name.startswith("get_") and obj in [self.scheduler, self.ekos]:
+                prop_name = method_name[4:]  # Enlever le "get_"
+                interface = self.scheduler_interface if obj == self.scheduler else self.dbus_interface
+                
+                logger.debug(f"Dernier essai: accès à {prop_name} via get_property")
+                return await self.get_property(interface, prop_name)
+                
         except Exception as e:
             logger.error(f"Erreur lors de l'appel à la méthode {method_name}: {str(e)}")
+            logger.exception(e)  # Afficher la stack trace complète
             
+        logger.warning(f"Méthode {method_name} non disponible sur l'objet")
         return None
 
     async def is_connected(self) -> bool:
@@ -267,6 +356,78 @@ class EkosController:
             self.connected = False
             return False
 
+    async def initialize_scheduler(self, in_recursion: bool = False) -> bool:
+        """
+        Initialise le scheduler si nécessaire.
+        Cela permet de s'assurer que l'objet scheduler est bien créé et accessible.
+        
+        Args:
+            in_recursion: Indique si cette méthode est appelée de manière récursive
+            
+        Returns:
+            True si l'initialisation réussit, False sinon
+        """
+        if not await self.is_connected():
+            logger.warning("Tentative d'initialisation du scheduler sans connexion active")
+            if not await self.connect():
+                return False
+                
+        try:
+            # Si on a déjà un scheduler fonctionnel, ne rien faire
+            if self.scheduler is not None and not in_recursion:
+                # Vérification du statut sans passer par get_scheduler_status pour éviter la récursion
+                try:
+                    logger.debug("Vérification directe du statut pour éviter la récursion")
+                    value = await self.dbus_property_operation("Get", self.scheduler_interface, 'status')
+                    if value is not None:
+                        logger.debug(f"Scheduler déjà initialisé avec statut: {value}")
+                        return True
+                except Exception as e:
+                    logger.debug(f"Vérification directe a échoué: {str(e)}")
+            
+            # Tentative de réinitialisation du scheduler
+            logger.info("Tentative d'initialisation/réinitialisation du scheduler")
+            
+            from dbus_next.message_bus import MessageBus
+            
+            # Créer une nouvelle connexion au bus
+            if self.bus is None:
+                self.bus = MessageBus()
+                await self.bus.connect()
+            
+            # Récupérer à nouveau les interfaces
+            scheduler_introspection = await self.bus.introspect(
+                self.dbus_service,
+                f"{self.dbus_path}/Scheduler"
+            )
+            
+            # Créer un nouveau proxy pour le scheduler
+            scheduler_proxy = self.bus.get_proxy_object(
+                self.dbus_service,
+                f"{self.dbus_path}/Scheduler",
+                scheduler_introspection
+            )
+            
+            # Récupérer les interfaces
+            self.scheduler = scheduler_proxy.get_interface(self.scheduler_interface)
+            self.properties_interface = scheduler_proxy.get_interface('org.freedesktop.DBus.Properties')
+            
+            logger.info("Scheduler réinitialisé avec succès")
+            
+            # Vérifier que l'initialisation a fonctionné en utilisant dbus_property_operation
+            value = await self.dbus_property_operation("Get", self.scheduler_interface, 'status')
+            if value is not None:
+                logger.debug(f"Vérification du scheduler réussie, statut: {value}")
+                return True
+            
+            logger.warning("L'initialisation du scheduler a échoué")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de l'initialisation du scheduler: {str(e)}")
+            logger.exception(e)
+            return False
+
     async def get_scheduler_status(self) -> Optional[int]:
         """
         Obtient le statut actuel du scheduler.
@@ -280,8 +441,31 @@ class EkosController:
                 return None
                 
         try:
-            # Utiliser la méthode générique d'accès aux propriétés
-            status = await self.get_property(self.scheduler_interface, 'status')
+            # Tenter d'initialiser le scheduler en cas de problème, avec flag pour éviter récursion
+            if self.scheduler is None:
+                if not await self.initialize_scheduler(in_recursion=True):
+                    logger.error("Impossible d'initialiser le scheduler")
+                    return None
+            
+            # Approche 1: Utiliser dbus_property_operation directement
+            logger.debug("Tentative d'obtention du statut via dbus_property_operation")
+            status = await self.dbus_property_operation("Get", self.scheduler_interface, 'status')
+            
+            # Approche 2: Utiliser directement get_status si disponible
+            if status is None and hasattr(self.scheduler, 'get_status'):
+                logger.debug("Tentative via get_status directement")
+                try:
+                    status = await self.scheduler.get_status()
+                    logger.debug(f"Résultat de get_status: {status}")
+                except Exception as e:
+                    logger.debug(f"get_status a échoué: {str(e)}")
+                    
+            # Approche 3: Si tout échoue, essayer de réinitialiser
+            if status is None:
+                logger.warning("Tentatives d'accès aux propriétés échouées, essai de réinitialisation")
+                if await self.initialize_scheduler(in_recursion=True):
+                    # Une dernière tentative après réinitialisation
+                    status = await self.dbus_property_operation("Get", self.scheduler_interface, 'status')
             
             if status is not None:
                 logger.debug(f"Statut du scheduler: {status} ({self.get_scheduler_status_string(status)})")
@@ -291,6 +475,7 @@ class EkosController:
             return status
         except Exception as e:
             logger.error(f"Échec de l'obtention du statut du scheduler: {str(e)}")
+            logger.exception(e)
             return None
 
     async def start_scheduler(self) -> bool:
