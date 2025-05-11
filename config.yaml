@@ -4,12 +4,15 @@
 observatory:
   name: "Mon Observatoire"
   
-# Configuration de l'API Weather Alpaca
+# Configuration de l'API Weather Alpaca SafetyMonitor
 alpaca:
-  host: "127.0.0.1"
-  port: 11111
-  device_number: 0
-  poll_interval: 60  # en secondes
+  host: "127.0.0.1"    # Adresse IP ou nom d'hôte du serveur Alpaca
+  port: 11111          # Port du serveur Alpaca
+  device_number: 0     # Numéro du dispositif SafetyMonitor
+  poll_interval: 60    # Intervalle de vérification en secondes
+  timeout: 5           # Délai d'attente des requêtes en secondes
+  max_retries: 3       # Nombre maximal de tentatives en cas d'échec
+  retry_delay: 1000    # Délai entre les tentatives en millisecondes
   
 # Configuration de connexion à EKOS via DBUS
 ekos:

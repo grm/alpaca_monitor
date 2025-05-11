@@ -56,7 +56,10 @@ class WeatherMonitoringSystem:
             self.weather_monitor = AlpacaWeatherMonitor(
                 host=alpaca_config.get("host", "127.0.0.1"),
                 port=alpaca_config.get("port", 11111),
-                device_number=alpaca_config.get("device_number", 0)
+                device_number=alpaca_config.get("device_number", 0),
+                timeout=alpaca_config.get("timeout", 5),
+                max_retries=alpaca_config.get("max_retries", 3),
+                retry_delay=alpaca_config.get("retry_delay", 1000)
             )
             
             # Initialiser le contrôleur EKOS
