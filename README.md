@@ -6,7 +6,7 @@ Application de surveillance météorologique pour contrôler automatiquement EKO
 
 - Surveillance des conditions météorologiques via un dispositif compatible ASCOM Alpaca
 - Utilisation de la méthode `isSafe` du dispositif météo Alpaca pour déterminer si les conditions sont favorables
-- Contrôle automatique du scheduler EKOS (démarrage/arrêt) en fonction des conditions météorologiques
+- Contrôle automatique du scheduler EKOS (démarrage/arrêt) en fonction des conditions météorologiques via pydbus
 - Logging avec rotation de fichiers
 
 ## Prérequis
@@ -14,6 +14,7 @@ Application de surveillance météorologique pour contrôler automatiquement EKO
 - Python 3.10 ou supérieur
 - Un dispositif météo compatible ASCOM Alpaca avec la méthode `isSafe` implémentée
 - KStars avec EKOS installé et fonctionnel
+- Un système avec D-Bus (généralement présent sur les systèmes Linux)
 
 ## Installation
 
@@ -92,6 +93,8 @@ python -m src.main --verbose
 L'application interroge périodiquement le dispositif météo Alpaca en utilisant la méthode `isSafe` pour vérifier si les conditions sont favorables à l'observation astronomique. Cette méthode est implémentée par le dispositif météo et prend en compte tous les paramètres pertinents (nuages, humidité, vent, pluie, etc.) selon les seuils configurés dans le dispositif lui-même.
 
 Si les conditions sont bonnes (isSafe retourne True), l'application démarre automatiquement le scheduler EKOS. Si les conditions se dégradent (isSafe retourne False), l'application arrête le scheduler pour protéger votre équipement.
+
+La communication avec EKOS s'effectue via D-Bus en utilisant la bibliothèque pydbus, qui offre une interface Python simple et intuitive pour interagir avec les services D-Bus.
 
 ## Développement
 
