@@ -1,0 +1,26 @@
+# Configuration pour le monitoring météo et le contrôle d'EKOS
+
+# Configuration de l'observatoire
+observatory:
+  name: "Mon Observatoire"
+  
+# Configuration de l'API Weather Alpaca
+alpaca:
+  host: "127.0.0.1"
+  port: 11111
+  device_number: 0
+  poll_interval: 60  # en secondes
+  
+# Configuration de connexion à EKOS via DBUS
+ekos:
+  dbus_service: "org.kde.kstars"
+  dbus_path: "/KStars/EKOS"
+  dbus_interface: "org.kde.kstars.EKOS"
+  scheduler_interface: "org.kde.kstars.EKOS.Scheduler"
+  
+# Configuration du logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "kstars_monitoring.log"
+  max_size: 10485760  # 10 MB
+  backup_count: 5 
