@@ -20,9 +20,9 @@ class EkosController:
     def __init__(
         self,
         dbus_service: str = "org.kde.kstars",
-        dbus_path: str = "/KStars/EKOS",
-        dbus_interface: str = "org.kde.kstars.EKOS",
-        scheduler_interface: str = "org.kde.kstars.EKOS.Scheduler",
+        dbus_path: str = "/KStars/Ekos",
+        dbus_interface: str = "org.kde.kstars.Ekos",
+        scheduler_interface: str = "org.kde.kstars.Ekos.Scheduler",
     ):
         """
         Initialise le contrôleur EKOS.
@@ -40,8 +40,27 @@ class EkosController:
         self.bus = None
         self.ekos = None
         self.scheduler = None
+        self.properties_interface = None
         self.connected = False
         logger.info(f"EkosController initialisé avec service DBUS {dbus_service}")
+
+    def get_scheduler_status_string(self, status: int) -> str:
+        """
+        Convertit le code d'état numérique en chaîne descriptive.
+        
+        Args:
+            status: Code d'état numérique
+            
+        Returns:
+            Description textuelle de l'état
+        """
+        status_map = {
+            0: "Arrêté",
+            1: "En cours d'exécution",
+            2: "En pause",
+            # Ajoutez d'autres états si nécessaire
+        }
+        return status_map.get(status, f"État inconnu ({status})")
 
     async def connect(self) -> bool:
         """
@@ -83,6 +102,9 @@ class EkosController:
             self.ekos = ekos_proxy.get_interface(self.dbus_interface)
             self.scheduler = scheduler_proxy.get_interface(self.scheduler_interface)
             
+            # Obtention de l'interface Properties pour accéder aux propriétés
+            self.properties_interface = scheduler_proxy.get_interface('org.freedesktop.DBus.Properties')
+            
             self.connected = True
             logger.info("Connexion à EKOS réussie")
             return True
@@ -106,6 +128,7 @@ class EkosController:
         self.bus = None
         self.ekos = None
         self.scheduler = None
+        self.properties_interface = None
         self.connected = False
         logger.info("Déconnexion d'EKOS effectuée")
         return True
@@ -117,14 +140,15 @@ class EkosController:
         Returns:
             True si connecté, False sinon
         """
-        if not self.connected or not self.bus or not self.ekos:
+        if not self.connected or not self.bus or not self.ekos or not self.scheduler or not self.properties_interface:
             return False
             
         try:
-            # Essaie d'accéder à une propriété ou méthode pour vérifier la connexion
-            _ = await self.ekos.call_get_status()
+            # Vérification de la connexion en essayant d'accéder à une propriété
+            _ = await self.properties_interface.call_Get(self.scheduler_interface, 'status')
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Erreur lors de la vérification de la connexion: {str(e)}")
             self.connected = False
             return False
 
@@ -141,8 +165,11 @@ class EkosController:
                 return None
                 
         try:
-            status = await self.scheduler.call_get_status()
-            logger.debug(f"Statut du scheduler: {status}")
+            # Utiliser l'interface Properties pour accéder à la propriété "status"
+            status_variant = await self.properties_interface.call_Get(self.scheduler_interface, 'status')
+            status = status_variant.value
+            
+            logger.debug(f"Statut du scheduler: {status} ({self.get_scheduler_status_string(status)})")
             return status
         except Exception as e:
             logger.error(f"Échec de l'obtention du statut du scheduler: {str(e)}")
@@ -169,15 +196,23 @@ class EkosController:
                 logger.info("Le scheduler est déjà en cours d'exécution")
                 return True
                 
-            # Démarrer le scheduler
-            result = await self.scheduler.call_start()
+            # Démarrer le scheduler en utilisant la méthode start() de l'interface
+            await self.scheduler.call_start()
+            logger.info("Commande de démarrage du scheduler envoyée")
             
-            if result:
-                logger.info("Démarrage du scheduler réussi")
-                return True
-            else:
-                logger.error("Échec du démarrage du scheduler")
-                return False
+            # Vérifier que le statut a bien changé (avec quelques tentatives)
+            for _ in range(3):
+                # Attendre un peu que le changement d'état prenne effet
+                import asyncio
+                await asyncio.sleep(1)
+                
+                new_status = await self.get_scheduler_status()
+                if new_status == 1:  # 1 = En cours d'exécution
+                    logger.info("Démarrage du scheduler réussi")
+                    return True
+            
+            logger.warning(f"Le scheduler n'a pas démarré comme prévu. Statut actuel: {new_status} ({self.get_scheduler_status_string(new_status)})")
+            return False
                 
         except Exception as e:
             logger.error(f"Échec du démarrage du scheduler: {str(e)}")
@@ -200,19 +235,27 @@ class EkosController:
             status = await self.get_scheduler_status()
             
             # Si le scheduler n'est pas en cours d'exécution, on ne fait rien
-            if status != 1:  # 1 = En cours d'exécution
-                logger.info("Le scheduler n'est pas en cours d'exécution, aucune action requise")
+            if status != 1:  # Si différent de 1 (En cours d'exécution)
+                logger.info(f"Le scheduler n'est pas en cours d'exécution (statut: {status}), aucune action requise")
                 return True
                 
-            # Arrêter le scheduler
-            result = await self.scheduler.call_abort()
+            # Arrêter le scheduler en utilisant la méthode stop() de l'interface
+            await self.scheduler.call_stop()
+            logger.info("Commande d'arrêt du scheduler envoyée")
             
-            if result:
-                logger.info("Arrêt du scheduler réussi")
-                return True
-            else:
-                logger.error("Échec de l'arrêt du scheduler")
-                return False
+            # Vérifier que le statut a bien changé (avec quelques tentatives)
+            for _ in range(3):
+                # Attendre un peu que le changement d'état prenne effet
+                import asyncio
+                await asyncio.sleep(1)
+                
+                new_status = await self.get_scheduler_status()
+                if new_status == 0:  # 0 = Arrêté
+                    logger.info("Arrêt du scheduler réussi")
+                    return True
+            
+            logger.warning(f"Le scheduler n'a pas été arrêté comme prévu. Statut actuel: {new_status} ({self.get_scheduler_status_string(new_status)})")
+            return False
                 
         except Exception as e:
             logger.error(f"Échec de l'arrêt du scheduler: {str(e)}")
@@ -221,34 +264,12 @@ class EkosController:
     async def stop_scheduler(self) -> bool:
         """
         Arrête le scheduler EKOS normalement.
+        Cette méthode est identique à abort_scheduler() car l'interface D-Bus
+        ne fournit qu'une méthode stop().
 
         Returns:
             True si l'arrêt est réussi, False sinon
         """
-        if not await self.is_connected():
-            logger.warning("Tentative d'arrêt du scheduler sans connexion active")
-            if not await self.connect():
-                return False
-                
-        try:
-            # Vérifier si le scheduler est en cours d'exécution
-            status = await self.get_scheduler_status()
-            
-            # Si le scheduler n'est pas en cours d'exécution, on ne fait rien
-            if status != 1:  # 1 = En cours d'exécution
-                logger.info("Le scheduler n'est pas en cours d'exécution, aucune action requise")
-                return True
-                
-            # Arrêter le scheduler
-            result = await self.scheduler.call_stop()
-            
-            if result:
-                logger.info("Arrêt du scheduler réussi")
-                return True
-            else:
-                logger.error("Échec de l'arrêt du scheduler")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Échec de l'arrêt du scheduler: {str(e)}")
-            return False 
+        # Réutiliser la méthode abort_scheduler car il n'y a pas de différence
+        # dans l'interface D-Bus entre "stop" et "abort"
+        return await self.abort_scheduler() 

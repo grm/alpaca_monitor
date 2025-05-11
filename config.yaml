@@ -27,21 +27,3 @@ logging:
   file: "kstars_monitoring.log"
   max_size: 10485760  # 10 MB
   backup_count: 5 
-
-def get_scheduler_status_string(status: int) -> str:
-    """
-    Convertit le code d'état numérique en chaîne descriptive.
-    
-    Args:
-        status: Code d'état numérique
-        
-    Returns:
-        Description textuelle de l'état
-    """
-    status_map = {
-        0: "Arrêté",
-        1: "En cours d'exécution",
-        2: "En pause",
-        # Ajoutez d'autres états si nécessaire
-    }
-    return status_map.get(status, f"État inconnu ({status})") 
