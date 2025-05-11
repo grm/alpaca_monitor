@@ -8,7 +8,8 @@ Module pour communiquer avec EKOS via DBUS.
 import logging
 from typing import Any, Dict, Optional
 
-from pydbus import SessionBus
+from dasbus.connection import SessionMessageBus
+from dasbus.error import DBusError
 
 logger = logging.getLogger(__name__)
 
@@ -51,20 +52,30 @@ class EkosController:
         """
         try:
             # Connexion au bus de session
-            self.bus = SessionBus()
+            self.bus = SessionMessageBus()
             
             # Connexion à EKOS
-            self.ekos = self.bus.get(self.dbus_service, self.dbus_path)
+            self.ekos = self.bus.get_proxy(
+                self.dbus_service,
+                self.dbus_path
+            )
             
             # Connexion au scheduler
-            self.scheduler = self.bus.get(self.dbus_service, f"{self.dbus_path}/Scheduler")
+            self.scheduler = self.bus.get_proxy(
+                self.dbus_service,
+                f"{self.dbus_path}/Scheduler"
+            )
             
             self.connected = True
             logger.info("Connexion à EKOS réussie")
             return True
             
-        except Exception as e:
+        except DBusError as e:
             logger.error(f"Échec de la connexion à EKOS: {str(e)}")
+            self.connected = False
+            return False
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la connexion à EKOS: {str(e)}")
             self.connected = False
             return False
             

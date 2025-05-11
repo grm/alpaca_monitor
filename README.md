@@ -6,7 +6,7 @@ Application de surveillance météorologique pour contrôler automatiquement EKO
 
 - Surveillance des conditions météorologiques via un dispositif compatible ASCOM Alpaca
 - Utilisation de la méthode `isSafe` du dispositif météo Alpaca pour déterminer si les conditions sont favorables
-- Contrôle automatique du scheduler EKOS (démarrage/arrêt) en fonction des conditions météorologiques via pydbus
+- Contrôle automatique du scheduler EKOS (démarrage/arrêt) en fonction des conditions météorologiques via dasbus
 - Logging avec rotation de fichiers
 
 ## Prérequis
@@ -15,34 +15,16 @@ Application de surveillance météorologique pour contrôler automatiquement EKO
 - Un dispositif météo compatible ASCOM Alpaca avec la méthode `isSafe` implémentée
 - KStars avec EKOS installé et fonctionnel
 - Un système avec D-Bus (généralement présent sur les systèmes Linux)
-- PyGObject et ses dépendances système (voir section Installation)
 
 ## Installation
 
-1. Installez les dépendances système nécessaires pour PyGObject (requises par pydbus) :
-
-   **Pour Ubuntu/Debian** :
-   ```bash
-   sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 libgirepository1.0-dev
-   ```
-
-   **Pour Fedora** :
-   ```bash
-   sudo dnf install python3-gobject python3-gobject-devel gobject-introspection-devel cairo-gobject-devel
-   ```
-
-   **Pour Arch Linux** :
-   ```bash
-   sudo pacman -S python-gobject gobject-introspection cairo
-   ```
-
-2. Clonez ce dépôt :
+1. Clonez ce dépôt :
 ```bash
 git clone https://github.com/votre-utilisateur/kstars_monitoring.git
 cd kstars_monitoring
 ```
 
-3. Installez les dépendances Python :
+2. Installez les dépendances Python :
 ```bash
 pip install -r requirements.txt
 ```
@@ -106,11 +88,14 @@ En mode verbeux (debug) :
 python -m src.main --verbose
 ```
 
-## Résolution des problèmes
+## Avantages de dasbus
 
-### Erreur "No module named 'gi'"
+L'application utilise la bibliothèque dasbus pour communiquer avec EKOS via D-Bus. Dasbus présente plusieurs avantages :
 
-Si vous obtenez l'erreur `ModuleNotFoundError: No module named 'gi'`, cela signifie que PyGObject n'est pas correctement installé. Assurez-vous d'avoir installé les dépendances système mentionnées dans la section Installation avant d'installer les dépendances Python.
+1. Pas de dépendances système complexes - contrairement à d'autres bibliothèques D-Bus pour Python (comme pydbus qui nécessite PyGObject), dasbus est une solution 100% Python
+2. Interface moderne et pythonique
+3. Gestion améliorée des erreurs avec des exceptions spécifiques
+4. Support pour les types complexes D-Bus
 
 ## Fonctionnement
 
@@ -118,7 +103,7 @@ L'application interroge périodiquement le dispositif météo Alpaca en utilisan
 
 Si les conditions sont bonnes (isSafe retourne True), l'application démarre automatiquement le scheduler EKOS. Si les conditions se dégradent (isSafe retourne False), l'application arrête le scheduler pour protéger votre équipement.
 
-La communication avec EKOS s'effectue via D-Bus en utilisant la bibliothèque pydbus, qui offre une interface Python simple et intuitive pour interagir avec les services D-Bus.
+La communication avec EKOS s'effectue via D-Bus en utilisant la bibliothèque dasbus, qui offre une interface Python moderne et intuitive pour interagir avec les services D-Bus.
 
 ## Développement
 
