@@ -145,9 +145,18 @@ class AlpacaWeatherMonitor:
         # Ne devrait jamais arriver mais au cas où
         raise Exception(f"Échec après {self.max_retries} tentatives pour une raison inconnue")
 
-    def connect(self) -> bool:
+    async def is_connected(self) -> bool:
         """
-        Se connecte au dispositif météo.
+        Vérifie si le moniteur est connecté au dispositif météo.
+
+        Returns:
+            True si connecté, False sinon
+        """
+        return self.connected
+
+    async def connect(self) -> bool:
+        """
+        Se connecte au dispositif météo de manière asynchrone.
 
         Returns:
             True si la connexion est réussie, False sinon
@@ -173,9 +182,9 @@ class AlpacaWeatherMonitor:
             logger.error(f"Échec de la connexion au dispositif météo: {str(e)}")
             return False
 
-    def disconnect(self) -> bool:
+    async def disconnect(self) -> bool:
         """
-        Se déconnecte du dispositif météo.
+        Se déconnecte du dispositif météo de manière asynchrone.
 
         Note: Pour SafetyMonitor, il n'y a pas de déconnexion à proprement parler,
         donc nous marquons simplement notre état local comme déconnecté.
@@ -187,7 +196,7 @@ class AlpacaWeatherMonitor:
         logger.info("Déconnexion du dispositif météo réussie")
         return True
 
-    def is_weather_safe(self) -> bool:
+    async def is_safe(self) -> bool:
         """
         Vérifie si les conditions météorologiques sont sûres pour l'observation
         en utilisant la méthode isSafe fournie par Alpaca SafetyMonitor.
@@ -197,7 +206,7 @@ class AlpacaWeatherMonitor:
         """
         if not self.connected:
             logger.warning("Tentative de vérification météo sans connexion active")
-            if not self.connect():
+            if not await self.connect():
                 return False
 
         try:

@@ -197,8 +197,9 @@ class WeatherMonitoringSystem:
                 logger.error("Échec du démarrage du système: la configuration a échoué")
                 return False
                 
-        # Connexion au dispositif météo
-        if not self.weather_monitor.connect():
+        # Connexion au dispositif météo (async)
+        connect_result = self.loop.run_until_complete(self.weather_monitor.connect())
+        if not connect_result:
             logger.error("Échec du démarrage du système: impossible de se connecter au dispositif météo")
             return False
         
@@ -206,8 +207,23 @@ class WeatherMonitoringSystem:
         connect_result = self.loop.run_until_complete(self.ekos_controller.connect())
         if not connect_result:
             logger.error("Échec du démarrage du système: impossible de se connecter à EKOS")
-            self.weather_monitor.disconnect()
+            self.loop.run_until_complete(self.weather_monitor.disconnect())
             return False
+        
+        # Charger la playlist EKOS si configurée
+        behavior_config = self.config.get("behavior", {})
+        ekos_config = self.config.get("ekos", {})
+        
+        if behavior_config.get("load_playlist", False) and ekos_config.get("playlist_path"):
+            playlist_path = ekos_config.get("playlist_path")
+            logger.info(f"Chargement de la playlist EKOS: {playlist_path}")
+            load_result = self.loop.run_until_complete(self.ekos_controller.load_playlist(playlist_path))
+            
+            if not load_result:
+                logger.error("Échec du chargement de la playlist EKOS")
+                # On ne considère pas cela comme un échec fatal, on continue le démarrage
+            else:
+                logger.info("Playlist EKOS chargée avec succès")
             
         self.running = True
         
@@ -235,9 +251,9 @@ class WeatherMonitoringSystem:
         # Annuler toutes les tâches planifiées
         self.scheduler.clear()
         
-        # Déconnexion du dispositif météo
+        # Déconnexion du dispositif météo (async)
         if self.weather_monitor:
-            self.weather_monitor.disconnect()
+            self.loop.run_until_complete(self.weather_monitor.disconnect())
             
         # Déconnexion d'EKOS
         if self.ekos_controller:

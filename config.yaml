@@ -20,10 +20,12 @@ ekos:
   dbus_path: "/KStars/Ekos"
   dbus_interface: "org.kde.kstars.Ekos"
   scheduler_interface: "org.kde.kstars.Ekos.Scheduler"
+  playlist_path: ""    # Chemin absolu vers le fichier de playlist EKOS (.esl) à charger au démarrage
   
 # Options de comportement
 behavior:
   stop_ekos_on_unsafe: false  # Arrêter complètement EKOS en cas de mauvaises conditions météo (pas seulement le scheduler)
+  load_playlist: true         # Charger la playlist spécifiée avant de démarrer le scheduler
   
 # Configuration des appels HTTP
 http_actions:
