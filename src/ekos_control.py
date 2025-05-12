@@ -589,7 +589,7 @@ class EkosController:
 
     async def is_ekos_running(self) -> bool:
         """
-        Check if EKOS is running.
+        Check if EKOS is running by calling get_ekos_status.
         
         Returns:
             True if EKOS is running, False otherwise
@@ -600,39 +600,44 @@ class EkosController:
                 return False
                 
         try:
-            # Use the get_ekos_status method directly if available
-            if hasattr(self.ekos, 'get_ekos_status'):
-                status = await self.ekos.get_ekos_status()
-                logger.debug(f"EKOS status from get_ekos_status: {status}")
-                return status == 1  # 1 = Running
+            # Utilisation directe de get_ekos_status qui est la méthode officielle
+            # pour récupérer l'état d'EKOS
+            status = None
             
-            # Alternative approach using call method
+            # Essai 1: Appel direct de get_ekos_status si disponible
+            if hasattr(self.ekos, 'get_ekos_status'):
+                try:
+                    status = await self.ekos.get_ekos_status()
+                    logger.debug(f"EKOS status from direct get_ekos_status: {status}")
+                    return status == 1  # 1 = Running
+                except Exception as e:
+                    logger.debug(f"Direct get_ekos_status call failed: {str(e)}")
+            
+            # Essai 2: Appel via call_get_ekos_status si disponible
+            if hasattr(self.ekos, 'call_get_ekos_status'):
+                try:
+                    status = await self.ekos.call_get_ekos_status()
+                    logger.debug(f"EKOS status from call_get_ekos_status: {status}")
+                    return status == 1  # 1 = Running
+                except Exception as e:
+                    logger.debug(f"call_get_ekos_status failed: {str(e)}")
+            
+            # Essai 3: Utilisation de call_method
             status = await self.call_method(self.ekos, "get_ekos_status")
             if status is not None:
                 logger.debug(f"EKOS status from call_method: {status}")
                 return status == 1  # 1 = Running
-                
-            # Fallback to property operation
-            logger.debug("Falling back to property operation")
-            if hasattr(self, 'ekos_properties_interface') and self.ekos_properties_interface:
+            
+            # En dernier recours seulement: essayer de récupérer via la propriété
+            logger.debug("All direct method calls failed, falling back to property operation")
+            if self.ekos_properties_interface:
                 status = await self.dbus_property_operation("Get", self.dbus_interface, 'ekosStatus', 
                                                            properties_interface=self.ekos_properties_interface)
-            else:
-                status = await self.dbus_property_operation("Get", self.dbus_interface, 'ekosStatus')
+                if status is not None:
+                    logger.debug(f"EKOS status from property: {status}")
+                    return status == 1  # 1 = Running
             
-            if status is not None:
-                logger.debug(f"EKOS status from property: {status}")
-                return status == 1  # 1 = Running
-                
-            # If all attempts fail, try a direct method call
-            try:
-                profiles = await self.ekos.call_get_profiles()
-                logger.debug(f"EKOS seems to be running (got profiles: {profiles})")
-                return True
-            except Exception as e:
-                logger.debug(f"Failed to call get_profiles: {str(e)}")
-            
-            logger.warning("EKOS is not running or inaccessible")
+            logger.warning("Could not determine EKOS status through any method")
             return False
                 
         except Exception as e:
