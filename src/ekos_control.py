@@ -30,14 +30,14 @@ class EkosController:
         config: Dict[str, Any] = None,
     ):
         """
-        Initialise le contrôleur EKOS.
+        Initialize the EKOS controller.
 
         Args:
-            dbus_service: Nom du service DBUS
-            dbus_path: Chemin de l'objet DBUS
-            dbus_interface: Interface DBUS principale
-            scheduler_interface: Interface DBUS du scheduler
-            config: Configuration complète du système
+            dbus_service: DBUS service name
+            dbus_path: DBUS object path
+            dbus_interface: Main DBUS interface
+            scheduler_interface: Scheduler DBUS interface
+            config: Complete system configuration
         """
         self.dbus_service = dbus_service
         self.dbus_path = dbus_path
@@ -49,32 +49,31 @@ class EkosController:
         self.properties_interface = None
         self.ekos_properties_interface = None
         self.connected = False
-        self.compat_mode = True  # Mode de compatibilité pour gérer les différences de versions
         
-        # Initialisation du client HTTP si la configuration est fournie
+        # Initialize HTTP client if configuration is provided
         self.http_client = None
         if config:
             self.http_client = HttpActionClient(config)
         
-        logger.info(f"EkosController initialisé avec service DBUS {dbus_service}")
+        logger.info(f"EkosController initialized with DBUS service {dbus_service}")
 
     def get_scheduler_status_string(self, status: int) -> str:
         """
-        Convertit le code d'état numérique en chaîne descriptive.
+        Convert numeric status code to descriptive string.
         
         Args:
-            status: Code d'état numérique
+            status: Numeric status code
             
         Returns:
-            Description textuelle de l'état
+            Textual description of the status
         """
         status_map = {
-            0: "Arrêté",
-            1: "En cours d'exécution",
-            2: "En pause",
-            # Ajoutez d'autres états si nécessaire
+            0: "Stopped",
+            1: "Running",
+            2: "Paused",
+            # Add other states if needed
         }
-        return status_map.get(status, f"État inconnu ({status})")
+        return status_map.get(status, f"Unknown state ({status})")
 
     async def connect(self) -> bool:
         """
@@ -201,43 +200,43 @@ class EkosController:
 
     async def dbus_property_operation(self, operation: str, interface: str, property_name: str, value=None, properties_interface=None) -> Any:
         """
-        Effectue une opération D-Bus sur une propriété de manière sécurisée.
+        Perform a D-Bus operation on a property safely.
         
         Args:
-            operation: L'opération à effectuer (Get, Set, GetAll)
-            interface: Nom de l'interface
-            property_name: Nom de la propriété
-            value: Valeur à définir (uniquement pour Set)
-            properties_interface: Interface Properties pour les opérations (si différente de self.properties_interface)
+            operation: Operation to perform (Get, Set, GetAll)
+            interface: Interface name
+            property_name: Property name
+            value: Value to set (only for Set)
+            properties_interface: Properties interface for operations (if different from self.properties_interface)
             
         Returns:
-            Résultat de l'opération ou None en cas d'erreur
+            Operation result or None on error
         """
-        # Utiliser l'interface Properties spécifiée ou celle par défaut
+        # Use specified Properties interface or default
         prop_interface = properties_interface if properties_interface is not None else self.properties_interface
         
         if not prop_interface:
-            logger.error(f"Impossible d'effectuer l'opération {operation}: interface Properties non disponible")
+            logger.error(f"Unable to perform {operation} operation: Properties interface not available")
             return None
             
         try:
-            logger.debug(f"Tentative d'opération D-Bus {operation} sur {interface}.{property_name}")
+            logger.debug(f"Attempting D-Bus {operation} operation on {interface}.{property_name}")
             
-            # Liste des méthodes possibles à essayer dans l'ordre
+            # List of possible methods to try in order
             methods = []
             if operation in ["Get", "Set", "GetAll"]:
-                # Préfixé avec call_
+                # Prefixed with call_
                 methods.append(f"call_{operation}")
-                # Sans préfixe
+                # Without prefix
                 methods.append(operation)
                 
-            # Essayer chaque méthode
+            # Try each method
             for method_name in methods:
                 if hasattr(prop_interface, method_name):
                     try:
-                        logger.debug(f"Essai avec la méthode {method_name}")
+                        logger.debug(f"Trying with method {method_name}")
                         
-                        # Appeler la méthode avec les bons arguments selon l'opération
+                        # Call the method with the right arguments based on the operation
                         if operation == "Get":
                             result = await getattr(prop_interface, method_name)(interface, property_name)
                         elif operation == "Set":
@@ -245,34 +244,21 @@ class EkosController:
                         elif operation == "GetAll":
                             result = await getattr(prop_interface, method_name)(interface)
                         
-                        logger.debug(f"Opération {method_name} réussie: {result}")
+                        logger.debug(f"Operation {method_name} successful: {result}")
                         
-                        # Extraire la valeur si c'est un variant
+                        # Extract value if it's a variant
                         if operation == "Get" and hasattr(result, 'value'):
                             return result.value
                         return result
                         
                     except Exception as e:
-                        logger.debug(f"Méthode {method_name} a échoué: {str(e)}")
+                        logger.debug(f"Method {method_name} failed: {str(e)}")
             
-            # En mode compatibilité, retourner une valeur par défaut plutôt que None
-            if self.compat_mode:
-                logger.debug(f"Mode compatibilité: retourner une valeur par défaut pour {property_name}")
-                if property_name == 'ekosStatus':
-                    # Supposer que EKOS est en cours d'exécution
-                    return 1
-                elif property_name == 'status' and interface.endswith('Scheduler'):
-                    # Supposer que le scheduler est arrêté (pour être sûr)
-                    return 0
-                
-            # Si en mode compatibilité et avec une valeur par défaut retournée,
-            # on ne devrait pas atteindre ce point pour les propriétés gérées
-            
-            logger.warning(f"Toutes les tentatives d'opération {operation} ont échoué")
+            logger.warning(f"All attempts at {operation} operation failed")
             return None
             
         except Exception as e:
-            logger.error(f"Erreur lors de l'opération D-Bus {operation}: {str(e)}")
+            logger.error(f"Error during D-Bus {operation} operation: {str(e)}")
             return None
 
     async def get_property(self, interface: str, property_name: str) -> Any:
@@ -356,24 +342,20 @@ class EkosController:
 
     async def is_connected(self) -> bool:
         """
-        Vérifie si la connexion à EKOS est active.
+        Check if the connection to EKOS is active.
 
         Returns:
-            True si connecté, False sinon
+            True if connected, False otherwise
         """
         if not self.connected or not self.bus or not self.ekos or not self.scheduler:
             return False
             
         try:
-            # Mode de compatibilité: vérifier simplement la présence des objets
-            if self.compat_mode:
-                return True
-                
-            # Vérification complète en essayant d'accéder à une propriété
+            # Try to access a property to verify connection
             status = await self.get_property(self.scheduler_interface, 'status')
             return status is not None
         except Exception as e:
-            logger.error(f"Erreur lors de la vérification de la connexion: {str(e)}")
+            logger.error(f"Error checking connection: {str(e)}")
             self.connected = False
             return False
 
@@ -386,7 +368,7 @@ class EkosController:
             in_recursion: Indique si cette méthode est appelée de manière récursive
             
         Returns:
-            True si l'initialisation réussit, False sinon
+            True if initialization succeeds, False otherwise
         """
         if not await self.is_connected():
             logger.warning("Tentative d'initialisation du scheduler sans connexion active")
@@ -451,81 +433,61 @@ class EkosController:
 
     async def get_scheduler_status(self) -> Optional[int]:
         """
-        Obtient le statut actuel du scheduler.
+        Get the current scheduler status.
 
         Returns:
-            Code d'état du scheduler, ou None en cas d'erreur
+            Scheduler status code, or None on error
         """
         if not await self.is_connected():
-            logger.warning("Tentative d'obtenir le statut du scheduler sans connexion active")
+            logger.warning("Attempting to get scheduler status without active connection")
             if not await self.connect():
                 return None
                 
         try:
-            # En mode compatibilité avec des problèmes connus de D-Bus,
-            # retourner directement 0 (arrêté) pour ne pas bloquer le flux
-            if self.compat_mode and hasattr(self, 'dbus_connection_issue'):
-                logger.debug("Mode compatibilité avec problèmes connus: supposer que le scheduler est arrêté")
-                return 0
-                
-            # Tenter d'initialiser le scheduler en cas de problème, avec flag pour éviter récursion
+            # Initialize scheduler if needed, with flag to avoid recursion
             if self.scheduler is None:
                 if not await self.initialize_scheduler(in_recursion=True):
-                    logger.error("Impossible d'initialiser le scheduler")
+                    logger.error("Unable to initialize scheduler")
                     return None
             
-            # Approche 1: Utiliser dbus_property_operation directement
-            logger.debug("Tentative d'obtention du statut via dbus_property_operation")
-            status = await self.dbus_property_operation("Get", self.scheduler_interface, 'status')
-            
-            # Approche 2: Utiliser directement get_status si disponible
-            if status is None and hasattr(self.scheduler, 'get_status'):
-                logger.debug("Tentative via get_status directement")
+            # Try direct method call first
+            if hasattr(self.scheduler, 'get_status'):
+                logger.debug("Attempting via get_status directly")
                 try:
                     status = await self.scheduler.get_status()
-                    logger.debug(f"Résultat de get_status: {status}")
+                    logger.debug(f"Result from get_status: {status}")
+                    return status
                 except Exception as e:
-                    logger.debug(f"get_status a échoué: {str(e)}")
+                    logger.debug(f"get_status failed: {str(e)}")
             
-            # Approche 3: Si l'introspection et les propriétés posent problème,
-            # essayer une approche plus directe avec call_method
-            if status is None:
-                logger.debug("Tentative via call_method sur le scheduler")
-                status = await self.call_method(self.scheduler, "get_status")
-                
-            # Si on a un statut, le retourner
+            # Try call_method
+            logger.debug("Attempting via call_method on scheduler")
+            status = await self.call_method(self.scheduler, "get_status")
             if status is not None:
-                logger.debug(f"Statut du scheduler: {status} ({self.get_scheduler_status_string(status)})")
+                logger.debug(f"Scheduler status: {status} ({self.get_scheduler_status_string(status)})")
                 return status
                 
-            # Si toutes les tentatives ont échoué et qu'on est en mode compatibilité,
-            # supposer que le scheduler est arrêté
-            if self.compat_mode:
-                logger.debug("Mode compatibilité: supposer que le scheduler est arrêté")
-                # Marquer qu'on a eu un problème avec D-Bus pour les futurs appels
-                setattr(self, 'dbus_connection_issue', True)
-                return 0
-                
-            # Si tout échoue, essayer de réinitialiser
-            logger.warning("Tentatives d'accès aux propriétés échouées, essai de réinitialisation")
+            # Fallback to property operation
+            logger.debug("Attempting to get scheduler status via property operation")
+            status = await self.dbus_property_operation("Get", self.scheduler_interface, 'status')
+            if status is not None:
+                logger.debug(f"Scheduler status from property: {status}")
+                return status
+            
+            # If everything fails, try reinitializing
+            logger.warning("All property access attempts failed, trying reinitialization")
             if await self.initialize_scheduler(in_recursion=True):
-                # Une dernière tentative après réinitialisation
+                # One last attempt after reinitialization
                 status = await self.dbus_property_operation("Get", self.scheduler_interface, 'status')
                 if status is not None:
                     return status
                     
-            logger.warning("Impossible d'obtenir le statut du scheduler")
+            logger.warning("Unable to get scheduler status")
             return None
             
         except Exception as e:
-            logger.error(f"Échec de l'obtention du statut du scheduler: {str(e)}")
+            logger.error(f"Failed to get scheduler status: {str(e)}")
             logger.exception(e)
-            
-            # En mode compatibilité, renvoyer 0 (arrêté) en cas d'erreur
-            if self.compat_mode:
-                logger.debug("Mode compatibilité: supposer que le scheduler est arrêté suite à une erreur")
-                return 0
-                
             return None
 
     async def start_scheduler(self) -> bool:
@@ -533,7 +495,7 @@ class EkosController:
         Démarre le scheduler EKOS.
 
         Returns:
-            True si le démarrage est réussi, False sinon
+            True if the start succeeds, False otherwise
         """
         if not await self.is_connected():
             logger.warning("Tentative de démarrage du scheduler sans connexion active")
@@ -545,7 +507,7 @@ class EkosController:
             status = await self.get_scheduler_status()
             
             # Si le scheduler est déjà en cours d'exécution, on ne fait rien
-            if status == 1:  # 1 = En cours d'exécution
+            if status == 1:  # 1 = Running
                 logger.info("Le scheduler est déjà en cours d'exécution")
                 return True
                 
@@ -553,17 +515,13 @@ class EkosController:
             result = await self.call_method(self.scheduler, "start")
             logger.info("Commande de démarrage du scheduler envoyée")
             
-            # En mode compatibilité, on considère que c'est un succès
-            if self.compat_mode:
-                return True
-                
             # Vérifier que le statut a bien changé (avec quelques tentatives)
             for _ in range(3):
                 # Attendre un peu que le changement d'état prenne effet
                 await asyncio.sleep(1)
                 
                 new_status = await self.get_scheduler_status()
-                if new_status == 1:  # 1 = En cours d'exécution
+                if new_status == 1:  # 1 = Running
                     logger.info("Démarrage du scheduler réussi")
                     return True
             
@@ -579,7 +537,7 @@ class EkosController:
         Arrête le scheduler EKOS immédiatement.
 
         Returns:
-            True si l'arrêt est réussi, False sinon
+            True if the stop succeeds, False otherwise
         """
         if not await self.is_connected():
             logger.warning("Tentative d'arrêt du scheduler sans connexion active")
@@ -591,7 +549,7 @@ class EkosController:
             status = await self.get_scheduler_status()
             
             # Si le scheduler n'est pas en cours d'exécution ou si on ne peut pas déterminer son état, on ne fait rien
-            if status is None or status != 1:  # Si différent de 1 (En cours d'exécution)
+            if status is None or status != 1:  # Si différent de 1 (Running)
                 logger.info(f"Le scheduler n'est pas en cours d'exécution (statut: {status}), aucune action requise")
                 return True
                 
@@ -599,17 +557,13 @@ class EkosController:
             result = await self.call_method(self.scheduler, "stop")
             logger.info("Commande d'arrêt du scheduler envoyée")
             
-            # En mode compatibilité, on considère que c'est un succès
-            if self.compat_mode:
-                return True
-                
             # Vérifier que le statut a bien changé (avec quelques tentatives)
             for _ in range(3):
                 # Attendre un peu que le changement d'état prenne effet
                 await asyncio.sleep(1)
                 
                 new_status = await self.get_scheduler_status()
-                if new_status == 0:  # 0 = Arrêté
+                if new_status == 0:  # 0 = Stopped
                     logger.info("Arrêt du scheduler réussi")
                     return True
             
@@ -627,7 +581,7 @@ class EkosController:
         ne fournit qu'une méthode stop().
 
         Returns:
-            True si l'arrêt est réussi, False sinon
+            True if the stop succeeds, False otherwise
         """
         # Réutiliser la méthode abort_scheduler car il n'y a pas de différence
         # dans l'interface D-Bus entre "stop" et "abort"
@@ -635,62 +589,54 @@ class EkosController:
 
     async def is_ekos_running(self) -> bool:
         """
-        Vérifie si EKOS est en cours d'exécution.
+        Check if EKOS is running.
         
         Returns:
-            True si EKOS est en cours d'exécution, False sinon
+            True if EKOS is running, False otherwise
         """
         if not await self.is_connected():
-            logger.warning("Tentative de vérification d'EKOS sans connexion active")
+            logger.warning("Attempting to check EKOS status without active connection")
             if not await self.connect():
                 return False
                 
         try:
-            # En mode compatibilité, si nous sommes connectés et que les interfaces existent,
-            # on considère qu'EKOS est en cours d'exécution
-            if self.compat_mode and self.ekos and self.scheduler:
-                logger.debug("Mode compatibilité: EKOS considéré comme en cours d'exécution puisque connecté")
-                return True
+            # Use the get_ekos_status method directly if available
+            if hasattr(self.ekos, 'get_ekos_status'):
+                status = await self.ekos.get_ekos_status()
+                logger.debug(f"EKOS status from get_ekos_status: {status}")
+                return status == 1  # 1 = Running
             
-            # Vérifier l'état d'EKOS via la propriété ekosStatus
-            logger.debug("Vérification de l'état d'EKOS")
-            
-            # Utiliser l'interface Properties d'EKOS pour récupérer l'état
+            # Alternative approach using call method
+            status = await self.call_method(self.ekos, "get_ekos_status")
+            if status is not None:
+                logger.debug(f"EKOS status from call_method: {status}")
+                return status == 1  # 1 = Running
+                
+            # Fallback to property operation
+            logger.debug("Falling back to property operation")
             if hasattr(self, 'ekos_properties_interface') and self.ekos_properties_interface:
                 status = await self.dbus_property_operation("Get", self.dbus_interface, 'ekosStatus', 
-                                                            properties_interface=self.ekos_properties_interface)
+                                                           properties_interface=self.ekos_properties_interface)
             else:
-                # Repli sur l'interface Properties standard
                 status = await self.dbus_property_operation("Get", self.dbus_interface, 'ekosStatus')
             
             if status is not None:
-                # Les valeurs possibles de ekosStatus sont:
-                # 0 = Idle (non démarré)
-                # 1 = En cours d'exécution
-                # Autres valeurs possibles selon l'implémentation
-                logger.debug(f"État d'EKOS: {status}")
-                return status == 1  # 1 = En cours d'exécution
-            else:
-                # Si on ne peut pas obtenir l'état, essayer de vérifier la présence d'interfaces
-                logger.debug("Impossible d'obtenir l'état d'EKOS, vérification des interfaces")
+                logger.debug(f"EKOS status from property: {status}")
+                return status == 1  # 1 = Running
                 
-                # Une dernière tentative: vérifier si on peut appeler une méthode sur l'interface EKOS
-                # Si cela fonctionne, c'est que EKOS est probablement en cours d'exécution
-                try:
-                    # On essaie de récupérer les profils - si ça marche, EKOS est en cours d'exécution
-                    if hasattr(self.ekos, 'call_get_profiles'):
-                        profiles = await self.ekos.call_get_profiles()
-                        logger.debug(f"EKOS est en cours d'exécution (profils récupérés: {profiles})")
-                        return True
-                except Exception as e:
-                    logger.debug(f"Échec de l'appel à get_profiles: {str(e)}")
-                
-                logger.warning("EKOS n'est pas en cours d'exécution ou inaccessible")
-                return False
+            # If all attempts fail, try a direct method call
+            try:
+                profiles = await self.ekos.call_get_profiles()
+                logger.debug(f"EKOS seems to be running (got profiles: {profiles})")
+                return True
+            except Exception as e:
+                logger.debug(f"Failed to call get_profiles: {str(e)}")
+            
+            logger.warning("EKOS is not running or inaccessible")
+            return False
                 
         except Exception as e:
-            logger.error(f"Erreur lors de la vérification de l'état d'EKOS: {str(e)}")
-            # En cas d'erreur générale, on renvoie False pour être sûr
+            logger.error(f"Error checking EKOS status: {str(e)}")
             return False
 
     async def start_ekos(self) -> bool:
@@ -699,7 +645,7 @@ class EkosController:
         Exécute les appels HTTP configurés avant le démarrage.
         
         Returns:
-            True si EKOS est démarré avec succès, False sinon
+            True if EKOS is started successfully, False otherwise
         """
         # Vérifier si EKOS est déjà en cours d'exécution
         if await self.is_ekos_running():
@@ -753,7 +699,7 @@ class EkosController:
         Exécute les appels HTTP configurés après l'arrêt.
         
         Returns:
-            True si EKOS est arrêté avec succès, False sinon
+            True if EKOS is stopped successfully, False otherwise
         """
         # Vérifier si EKOS est en cours d'exécution
         if not await self.is_ekos_running():
@@ -765,7 +711,7 @@ class EkosController:
         try:
             # Arrêter d'abord le scheduler si nécessaire
             status = await self.get_scheduler_status()
-            if status == 1:  # En cours d'exécution
+            if status == 1:  # Running
                 logger.info("Arrêt du scheduler avant d'arrêter EKOS")
                 if not await self.abort_scheduler():
                     logger.warning("Échec de l'arrêt du scheduler, tentative d'arrêt d'EKOS malgré tout")
@@ -813,7 +759,7 @@ class EkosController:
         S'assure qu'EKOS est en cours d'exécution, le démarre si nécessaire.
         
         Returns:
-            True si EKOS est en cours d'exécution, False sinon
+            True if EKOS is running, False otherwise
         """
         if not await self.is_ekos_running():
             logger.info("EKOS n'est pas en cours d'exécution, tentative de démarrage")
@@ -826,7 +772,7 @@ class EkosController:
         Démarre EKOS si nécessaire, puis démarre le scheduler.
         
         Returns:
-            True si le scheduler est en cours d'exécution, False sinon
+            True if the scheduler is running, False otherwise
         """
         # Vérifier et démarrer EKOS si nécessaire
         if not await self.ensure_ekos_running():
@@ -836,7 +782,7 @@ class EkosController:
         # Vérifier l'état du scheduler
         status = await self.get_scheduler_status()
         
-        if status == 1:  # En cours d'exécution
+        if status == 1:  # Running
             logger.info("Le scheduler est déjà en cours d'exécution")
             return True
             
@@ -848,10 +794,10 @@ class EkosController:
         Charge une playlist dans le scheduler EKOS.
         
         Args:
-            playlist_path: Chemin complet vers le fichier de playlist EKOS (.esl)
+            playlist_path: Full path to the EKOS playlist file (.esl)
             
         Returns:
-            True si la playlist a été chargée avec succès, False sinon
+            True if the playlist is loaded successfully, False otherwise
         """
         if not playlist_path:
             logger.error("Aucun chemin de playlist spécifié")
@@ -919,11 +865,6 @@ class EkosController:
                     # Attendre un peu pour que le chargement prenne effet
                     await asyncio.sleep(2)
                     
-                    # En mode compatibilité, considérer que le chargement a réussi
-                    if self.compat_mode:
-                        logger.info("Mode compatibilité: chargement de playlist considéré comme réussi")
-                        return True
-                        
                     # Essayer de vérifier que la playlist a bien été chargée
                     try:
                         # Tenter de récupérer la liste des jobs ou un autre indicateur
@@ -950,45 +891,8 @@ class EkosController:
             # Attendre un peu pour que le chargement prenne effet
             await asyncio.sleep(2)
             
-            # En mode compatibilité, on suppose que ça a marché
-            if self.compat_mode:
-                logger.info("Mode compatibilité: chargement de playlist considéré comme réussi (méthode générique)")
-                return True
-                
             return True
         except Exception as e:
             logger.error(f"Échec de toutes les tentatives de chargement de playlist: {str(e)}")
             
-        # Si on a essayé toutes les méthodes et qu'on est en mode compatibilité, 
-        # on peut tenter d'utiliser qdbus directement
-        if self.compat_mode:
-            try:
-                import subprocess
-                
-                logger.debug("Tentative d'utilisation de qdbus directement")
-                service = self.dbus_service
-                path = f"{self.dbus_path}/Scheduler"
-                interface = self.scheduler_interface
-                
-                # Utiliser qdbus pour charger la playlist
-                cmd = [
-                    "qdbus", service, path, f"{interface}.loadScheduler", 
-                    playlist_path
-                ]
-                
-                process = subprocess.Popen(
-                    cmd, 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE
-                )
-                stdout, stderr = process.communicate()
-                
-                if process.returncode == 0:
-                    logger.info(f"Chargement de playlist réussi via qdbus: {playlist_path}")
-                    return True
-                else:
-                    logger.error(f"Échec du chargement via qdbus: {stderr.decode()}")
-            except Exception as e:
-                logger.error(f"Erreur lors de l'utilisation de qdbus: {str(e)}")
-        
         return False 
