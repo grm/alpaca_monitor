@@ -68,7 +68,8 @@ class WeatherMonitoringSystem:
                 dbus_service=ekos_config.get("dbus_service", "org.kde.kstars"),
                 dbus_path=ekos_config.get("dbus_path", "/KStars/EKOS"),
                 dbus_interface=ekos_config.get("dbus_interface", "org.kde.kstars.EKOS"),
-                scheduler_interface=ekos_config.get("scheduler_interface", "org.kde.kstars.EKOS.Scheduler")
+                scheduler_interface=ekos_config.get("scheduler_interface", "org.kde.kstars.EKOS.Scheduler"),
+                config=self.config  # Passer la configuration complète
             )
             
             # Configurer la planification des vérifications météo
@@ -102,27 +103,80 @@ class WeatherMonitoringSystem:
         logger.info("Vérification des conditions météorologiques...")
         
         try:
-            # Vérifier si les conditions météorologiques sont favorables en utilisant isSafe d'Alpaca
-            is_weather_safe = self.weather_monitor.is_weather_safe()
+            # Vérifier la connexion au dispositif météo
+            if not await self.weather_monitor.is_connected():
+                logger.warning("Dispositif météo non connecté, tentative de connexion...")
+                if not await self.weather_monitor.connect():
+                    logger.error("Impossible de se connecter au dispositif météo")
+                    return
             
-            # Si le temps est le même que la dernière vérification, ne rien faire
-            if self.last_weather_safe is not None and self.last_weather_safe == is_weather_safe:
-                logger.debug(f"Pas de changement dans les conditions météorologiques: sûr = {is_weather_safe}")
-                return
+            # Récupérer l'état du dispositif météo
+            is_safe = await self.weather_monitor.is_safe()
+            
+            # Si conditions météo favorables, démarrer le scheduler
+            if is_safe:
+                logger.info("Conditions météorologiques favorables, vérification du scheduler EKOS")
                 
-            self.last_weather_safe = is_weather_safe
+                # Vérifier d'abord qu'EKOS est en cours d'exécution
+                ekos_running = await self.ekos_controller.is_ekos_running()
+                
+                if not ekos_running:
+                    logger.warning("EKOS n'est pas en cours d'exécution, tentative de démarrage")
+                    if await self.ekos_controller.start_ekos():
+                        logger.info("EKOS a été démarré avec succès")
+                    else:
+                        logger.error("Impossible de démarrer EKOS, le scheduler ne peut pas être démarré")
+                        return
+                
+                # Récupérer le statut du scheduler
+                status = await self.ekos_controller.get_scheduler_status()
+                
+                # Si le scheduler n'est pas déjà en cours d'exécution, le démarrer
+                if status != 1:  # 1 = En cours d'exécution
+                    logger.info("Démarrage du scheduler EKOS suite à des conditions météorologiques favorables")
+                    if await self.ekos_controller.start_scheduler():
+                        logger.info("Scheduler EKOS démarré avec succès")
+                    else:
+                        logger.error("Échec du démarrage du scheduler EKOS")
+                else:
+                    logger.info("Le scheduler EKOS est déjà en cours d'exécution")
             
-            # Agir en fonction des conditions météorologiques
-            if is_weather_safe:
-                logger.info("Conditions météorologiques favorables, démarrage du scheduler EKOS")
-                await self.ekos_controller.start_scheduler()
+            # Si conditions météo défavorables, arrêter le scheduler
             else:
                 logger.warning("Conditions météorologiques défavorables, arrêt du scheduler EKOS")
-                # On utilise abort pour un arrêt immédiat en cas de conditions météo dangereuses
-                await self.ekos_controller.abort_scheduler()
+                
+                # Vérifier d'abord qu'EKOS est en cours d'exécution
+                ekos_running = await self.ekos_controller.is_ekos_running()
+                
+                if not ekos_running:
+                    logger.info("EKOS n'est pas en cours d'exécution, aucune action requise")
+                    return
+                
+                # Récupérer le statut du scheduler
+                status = await self.ekos_controller.get_scheduler_status()
+                
+                # Si le scheduler est en cours d'exécution, l'arrêter
+                if status == 1:  # 1 = En cours d'exécution
+                    logger.warning("Arrêt du scheduler EKOS en raison de conditions météorologiques défavorables")
+                    if await self.ekos_controller.abort_scheduler():
+                        logger.info("Scheduler EKOS arrêté avec succès")
+                    else:
+                        logger.error("Échec de l'arrêt du scheduler EKOS")
+                else:
+                    logger.info("Le scheduler EKOS n'est pas en cours d'exécution, aucune action requise")
+                    
+                # Option pour arrêter également EKOS complètement
+                behavior_config = self.config.get('behavior', {})
+                if behavior_config.get('stop_ekos_on_unsafe', False):
+                    logger.info("Arrêt d'EKOS en raison de conditions météorologiques défavorables prolongées")
+                    if await self.ekos_controller.stop_ekos():
+                        logger.info("EKOS arrêté avec succès")
+                    else:
+                        logger.error("Échec de l'arrêt d'EKOS")
                 
         except Exception as e:
-            logger.error(f"Erreur lors de la vérification des conditions météorologiques: {str(e)}")
+            logger.error(f"Erreur lors de la vérification météorologique: {str(e)}")
+            logger.exception(e)
 
     def start(self) -> bool:
         """

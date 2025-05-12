@@ -21,6 +21,33 @@ ekos:
   dbus_interface: "org.kde.kstars.Ekos"
   scheduler_interface: "org.kde.kstars.Ekos.Scheduler"
   
+# Options de comportement
+behavior:
+  stop_ekos_on_unsafe: false  # Arrêter complètement EKOS en cas de mauvaises conditions météo (pas seulement le scheduler)
+  
+# Configuration des appels HTTP
+http_actions:
+  enabled: false                    # Activer/désactiver les appels HTTP
+  timeout: 10                       # Timeout des requêtes HTTP en secondes
+  max_retries: 2                    # Nombre de tentatives en cas d'échec
+  delay_after_call: 5               # Délai d'attente après chaque appel HTTP (en secondes)
+  
+  # Appels avant démarrage d'EKOS
+  before_start:
+    - url: "http://example.com/api/prepare_ekos"   # URL à appeler avant de démarrer EKOS
+      method: "GET"                                # Méthode HTTP (GET par défaut)
+      headers: {}                                  # En-têtes HTTP optionnels
+    - url: "http://example.com/api/power_on"       # On peut définir plusieurs appels successifs
+      method: "GET"
+      delay_after: 10                              # Délai spécifique après cet appel (remplace delay_after_call)
+  
+  # Appels après arrêt d'EKOS
+  after_stop:
+    - url: "http://example.com/api/cleanup"        # URL à appeler après avoir arrêté EKOS
+      method: "GET"
+    - url: "http://example.com/api/power_off"
+      method: "GET"
+  
 # Configuration du logging
 logging:
   level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
