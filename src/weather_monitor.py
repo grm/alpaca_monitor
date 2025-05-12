@@ -128,6 +128,25 @@ class WeatherMonitoringSystem:
                         logger.error("Impossible de démarrer EKOS, le scheduler ne peut pas être démarré")
                         return
                 
+                # EKOS est maintenant en cours d'exécution, charger la playlist si configuré
+                behavior_config = self.config.get("behavior", {})
+                ekos_config = self.config.get("ekos", {})
+                
+                if behavior_config.get("load_playlist", False) and ekos_config.get("playlist_path"):
+                    playlist_path = ekos_config.get("playlist_path")
+                    status = await self.ekos_controller.get_scheduler_status()
+                    
+                    # Ne charger la playlist que si le scheduler n'est pas déjà en cours d'exécution
+                    if status != 1:  # 1 = En cours d'exécution
+                        logger.info(f"Chargement de la playlist EKOS: {playlist_path}")
+                        load_result = await self.ekos_controller.load_playlist(playlist_path)
+                        
+                        if not load_result:
+                            logger.error("Échec du chargement de la playlist EKOS")
+                            # On continue quand même pour essayer de démarrer le scheduler
+                        else:
+                            logger.info("Playlist EKOS chargée avec succès")
+                
                 # Récupérer le statut du scheduler
                 status = await self.ekos_controller.get_scheduler_status()
                 
@@ -209,21 +228,6 @@ class WeatherMonitoringSystem:
             logger.error("Échec du démarrage du système: impossible de se connecter à EKOS")
             self.loop.run_until_complete(self.weather_monitor.disconnect())
             return False
-        
-        # Charger la playlist EKOS si configurée
-        behavior_config = self.config.get("behavior", {})
-        ekos_config = self.config.get("ekos", {})
-        
-        if behavior_config.get("load_playlist", False) and ekos_config.get("playlist_path"):
-            playlist_path = ekos_config.get("playlist_path")
-            logger.info(f"Chargement de la playlist EKOS: {playlist_path}")
-            load_result = self.loop.run_until_complete(self.ekos_controller.load_playlist(playlist_path))
-            
-            if not load_result:
-                logger.error("Échec du chargement de la playlist EKOS")
-                # On ne considère pas cela comme un échec fatal, on continue le démarrage
-            else:
-                logger.info("Playlist EKOS chargée avec succès")
             
         self.running = True
         
