@@ -89,7 +89,10 @@ class WeatherMonitoringSystem:
         in the asyncio loop.
         """
         if self.running:
+            logger.debug(f"Scheduled weather check triggered at {time.strftime('%H:%M:%S')}")
             asyncio.run_coroutine_threadsafe(self.check_weather_and_update_ekos(), self.loop)
+        else:
+            logger.debug("Scheduled weather check skipped because system is not running")
 
     async def check_weather_and_update_ekos(self) -> None:
         """
