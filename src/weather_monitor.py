@@ -28,10 +28,10 @@ class WeatherMonitoringSystem:
 
     def __init__(self, config: Dict[str, Any]):
         """
-        Initialise le système de surveillance.
+        Initializes the monitoring system.
 
         Args:
-            config: Dictionnaire contenant la configuration du système
+            config: Dictionary containing the system configuration
         """
         self.config = config
         self.running = False
@@ -41,17 +41,17 @@ class WeatherMonitoringSystem:
         self.scheduler = schedule
         self.loop = asyncio.get_event_loop()
         
-        logger.info("Système de surveillance météorologique initialisé")
+        logger.info("Weather monitoring system initialized")
 
     def setup(self) -> bool:
         """
-        Configure les composants du système.
+        Configures the system components.
 
         Returns:
-            True si la configuration est réussie, False sinon
+            True if setup is successful, False otherwise
         """
         try:
-            # Initialiser le moniteur météo
+            # Initialize the weather monitor
             alpaca_config = self.config.get("alpaca", {})
             self.weather_monitor = AlpacaWeatherMonitor(
                 host=alpaca_config.get("host", "127.0.0.1"),
@@ -62,73 +62,72 @@ class WeatherMonitoringSystem:
                 retry_delay=alpaca_config.get("retry_delay", 1000)
             )
             
-            # Initialiser le contrôleur EKOS
+            # Initialize the EKOS controller
             ekos_config = self.config.get("ekos", {})
             self.ekos_controller = EkosController(
                 dbus_service=ekos_config.get("dbus_service", "org.kde.kstars"),
                 dbus_path=ekos_config.get("dbus_path", "/KStars/EKOS"),
                 dbus_interface=ekos_config.get("dbus_interface", "org.kde.kstars.EKOS"),
                 scheduler_interface=ekos_config.get("scheduler_interface", "org.kde.kstars.EKOS.Scheduler"),
-                config=self.config  # Passer la configuration complète
+                config=self.config  # Pass the complete configuration
             )
             
-            # Configurer la planification des vérifications météo
-            poll_interval = alpaca_config.get("poll_interval", 60)  # par défaut 60 secondes
+            # Configure weather check scheduling
+            poll_interval = alpaca_config.get("poll_interval", 60)  # default 60 seconds
             self.scheduler.every(poll_interval).seconds.do(self._check_weather_and_update_ekos_wrapper)
             
-            logger.info(f"Configuration réussie, vérification météo planifiée toutes les {poll_interval} secondes")
+            logger.info(f"Setup successful, weather check scheduled every {poll_interval} seconds")
             return True
             
         except Exception as e:
-            logger.error(f"Échec de la configuration du système: {str(e)}")
+            logger.error(f"Failed to configure the system: {str(e)}")
             return False
 
     def _check_weather_and_update_ekos_wrapper(self) -> None:
         """
-        Wrapper pour exécuter la fonction asynchrone check_weather_and_update_ekos
-        dans la boucle asyncio.
+        Wrapper to run the asynchronous check_weather_and_update_ekos function
+        in the asyncio loop.
         """
         if self.running:
             asyncio.run_coroutine_threadsafe(self.check_weather_and_update_ekos(), self.loop)
 
     async def check_weather_and_update_ekos(self) -> None:
         """
-        Vérifie les conditions météorologiques et met à jour l'état du scheduler EKOS
-        en fonction de celles-ci.
+        Checks weather conditions and updates the EKOS scheduler state accordingly.
         """
         if not self.running:
-            logger.warning("Vérification météo ignorée car le système n'est pas en cours d'exécution")
+            logger.warning("Weather check ignored because the system is not running")
             return
 
-        logger.info("Vérification des conditions météorologiques...")
+        logger.info("Checking weather conditions...")
         
         try:
-            # Vérifier la connexion au dispositif météo
+            # Verify connection to the weather device
             if not await self.weather_monitor.is_connected():
-                logger.warning("Dispositif météo non connecté, tentative de connexion...")
+                logger.warning("Weather device not connected, trying to connect...")
                 if not await self.weather_monitor.connect():
-                    logger.error("Impossible de se connecter au dispositif météo")
+                    logger.error("Unable to connect to the weather device")
                     return
             
-            # Récupérer l'état du dispositif météo
+            # Get the weather device status
             is_safe = await self.weather_monitor.is_safe()
             
-            # Si conditions météo favorables, démarrer le scheduler
+            # If weather conditions are favorable, start the scheduler
             if is_safe:
-                logger.info("Conditions météorologiques favorables, vérification du scheduler EKOS")
+                logger.info("Favorable weather conditions, checking EKOS scheduler")
                 
-                # Vérifier d'abord qu'EKOS est en cours d'exécution
+                # First check if EKOS is running
                 ekos_running = await self.ekos_controller.is_ekos_running()
                 
                 if not ekos_running:
-                    logger.warning("EKOS n'est pas en cours d'exécution, tentative de démarrage")
+                    logger.warning("EKOS is not running, trying to start it")
                     if await self.ekos_controller.start_ekos():
-                        logger.info("EKOS a été démarré avec succès")
+                        logger.info("EKOS started successfully")
                     else:
-                        logger.error("Impossible de démarrer EKOS, le scheduler ne peut pas être démarré")
+                        logger.error("Unable to start EKOS, scheduler cannot be started")
                         return
                 
-                # EKOS est maintenant en cours d'exécution, charger la playlist si configuré
+                # EKOS is now running, load the playlist if configured
                 behavior_config = self.config.get("behavior", {})
                 ekos_config = self.config.get("ekos", {})
                 
@@ -136,163 +135,160 @@ class WeatherMonitoringSystem:
                     playlist_path = ekos_config.get("playlist_path")
                     status = await self.ekos_controller.get_scheduler_status()
                     
-                    # Ne charger la playlist que si le scheduler n'est pas déjà en cours d'exécution
-                    if status != 1:  # 1 = En cours d'exécution
-                        logger.info(f"Chargement de la playlist EKOS: {playlist_path}")
+                    # Only load the playlist if the scheduler is not already running
+                    if status != 1:  # 1 = Running
+                        logger.info(f"Loading EKOS playlist: {playlist_path}")
                         load_result = await self.ekos_controller.load_playlist(playlist_path)
                         
                         if not load_result:
-                            logger.error("Échec du chargement de la playlist EKOS")
-                            # On continue quand même pour essayer de démarrer le scheduler
+                            logger.error("Failed to load EKOS playlist")
+                            # Continue anyway to try to start the scheduler
                         else:
-                            logger.info("Playlist EKOS chargée avec succès")
+                            logger.info("EKOS playlist loaded successfully")
                 
-                # Récupérer le statut du scheduler
+                # Get scheduler status
                 status = await self.ekos_controller.get_scheduler_status()
                 
-                # Si le scheduler n'est pas déjà en cours d'exécution, le démarrer
-                if status != 1:  # 1 = En cours d'exécution
-                    logger.info("Démarrage du scheduler EKOS suite à des conditions météorologiques favorables")
+                # If the scheduler is not already running, start it
+                if status != 1:  # 1 = Running
+                    logger.info("Starting EKOS scheduler due to favorable weather conditions")
                     if await self.ekos_controller.start_scheduler():
-                        logger.info("Scheduler EKOS démarré avec succès")
+                        logger.info("EKOS scheduler started successfully")
                     else:
-                        logger.error("Échec du démarrage du scheduler EKOS")
+                        logger.error("Failed to start EKOS scheduler")
                 else:
-                    logger.info("Le scheduler EKOS est déjà en cours d'exécution")
+                    logger.info("EKOS scheduler is already running")
             
-            # Si conditions météo défavorables, arrêter le scheduler
+            # If weather conditions are unfavorable, stop the scheduler
             else:
-                logger.warning("Conditions météorologiques défavorables, arrêt du scheduler EKOS")
+                logger.warning("Unfavorable weather conditions, stopping EKOS scheduler")
                 
-                # Vérifier d'abord qu'EKOS est en cours d'exécution
+                # First check if EKOS is running
                 ekos_running = await self.ekos_controller.is_ekos_running()
                 
                 if not ekos_running:
-                    logger.info("EKOS n'est pas en cours d'exécution, aucune action requise")
+                    logger.info("EKOS is not running, no action required")
                     return
                 
-                # Récupérer le statut du scheduler
+                # Get scheduler status
                 status = await self.ekos_controller.get_scheduler_status()
                 
-                # Si le scheduler est en cours d'exécution, l'arrêter
-                if status == 1:  # 1 = En cours d'exécution
-                    logger.warning("Arrêt du scheduler EKOS en raison de conditions météorologiques défavorables")
+                # If the scheduler is running, stop it
+                if status == 1:  # 1 = Running
+                    logger.warning("Stopping EKOS scheduler due to unfavorable weather conditions")
                     if await self.ekos_controller.abort_scheduler():
-                        logger.info("Scheduler EKOS arrêté avec succès")
+                        logger.info("EKOS scheduler stopped successfully")
                     else:
-                        logger.error("Échec de l'arrêt du scheduler EKOS")
+                        logger.error("Failed to stop EKOS scheduler")
                 else:
-                    logger.info("Le scheduler EKOS n'est pas en cours d'exécution, aucune action requise")
+                    logger.info("EKOS scheduler is not running, no action required")
                     
-                # Option pour arrêter également EKOS complètement
+                # Option to also stop EKOS completely
                 behavior_config = self.config.get('behavior', {})
                 if behavior_config.get('stop_ekos_on_unsafe', False):
-                    logger.info("Arrêt d'EKOS en raison de conditions météorologiques défavorables prolongées")
+                    logger.info("Stopping EKOS due to prolonged unfavorable weather conditions")
                     if await self.ekos_controller.stop_ekos():
-                        logger.info("EKOS arrêté avec succès")
+                        logger.info("EKOS stopped successfully")
                     else:
-                        logger.error("Échec de l'arrêt d'EKOS")
+                        logger.error("Failed to stop EKOS")
                 
         except Exception as e:
-            logger.error(f"Erreur lors de la vérification météorologique: {str(e)}")
+            logger.error(f"Error during weather check: {str(e)}")
             logger.exception(e)
 
     def start(self) -> bool:
         """
-        Démarre le système de surveillance.
+        Starts the monitoring system.
 
         Returns:
-            True si le démarrage est réussi, False sinon
+            True if startup is successful, False otherwise
         """
-        logger.info("Démarrage du système de surveillance météorologique...")
+        logger.info("Starting weather monitoring system...")
         
         if self.running:
-            logger.warning("Le système est déjà en cours d'exécution")
+            logger.warning("The system is already running")
             return True
             
-        # Configurer les composants si ce n'est pas déjà fait
+        # Configure components if not already done
         if not self.weather_monitor or not self.ekos_controller:
             if not self.setup():
-                logger.error("Échec du démarrage du système: la configuration a échoué")
+                logger.error("Failed to start the system: setup failed")
                 return False
                 
-        # Connexion au dispositif météo (async)
+        # Connect to the weather device (async)
         connect_result = self.loop.run_until_complete(self.weather_monitor.connect())
         if not connect_result:
-            logger.error("Échec du démarrage du système: impossible de se connecter au dispositif météo")
+            logger.error("Failed to start the system: unable to connect to the weather device")
             return False
         
-        # Connexion à EKOS (async)
+        # Connect to EKOS (async)
         connect_result = self.loop.run_until_complete(self.ekos_controller.connect())
         if not connect_result:
-            logger.error("Échec du démarrage du système: impossible de se connecter à EKOS")
+            logger.error("Failed to start the system: unable to connect to EKOS")
             self.loop.run_until_complete(self.weather_monitor.disconnect())
             return False
             
         self.running = True
         
-        # Vérifier les conditions météorologiques immédiatement au démarrage
+        # Check weather conditions immediately on startup
         self.loop.run_until_complete(self.check_weather_and_update_ekos())
         
-        logger.info("Système de surveillance météorologique démarré avec succès")
+        logger.info("Weather monitoring system started successfully")
         return True
 
     def stop(self) -> bool:
         """
-        Arrête le système de surveillance.
+        Stops the monitoring system.
 
         Returns:
-            True si l'arrêt est réussi, False sinon
+            True if shutdown is successful, False otherwise
         """
-        logger.info("Arrêt du système de surveillance météorologique...")
+        logger.info("Stopping weather monitoring system...")
         
         if not self.running:
-            logger.warning("Le système n'est pas en cours d'exécution")
+            logger.warning("The system is not running")
             return True
             
         self.running = False
         
-        # Annuler toutes les tâches planifiées
+        # Cancel all scheduled tasks
         self.scheduler.clear()
         
-        # Déconnexion du dispositif météo (async)
+        # Disconnect from the weather device (async)
         if self.weather_monitor:
             self.loop.run_until_complete(self.weather_monitor.disconnect())
             
-        # Déconnexion d'EKOS
+        # Disconnect from EKOS
         if self.ekos_controller:
             self.ekos_controller.disconnect()
             
-        logger.info("Système de surveillance météorologique arrêté avec succès")
+        logger.info("Weather monitoring system stopped successfully")
         return True
 
     def run(self) -> None:
         """
-        Exécute le système de surveillance en boucle jusqu'à interruption.
+        Runs the monitoring system in a loop until interrupted.
         """
         if not self.start():
-            logger.error("Impossible de démarrer le système de surveillance")
+            logger.error("Unable to start the monitoring system")
             return
             
-        logger.info("Système de surveillance en cours d'exécution, appuyez sur Ctrl+C pour arrêter")
+        logger.info("Monitoring system running, press Ctrl+C to stop")
         
-        # Configurer le gestionnaire de signaux pour arrêter proprement
+        # Configure signal handlers for clean shutdown
         def signal_handler(sig, frame):
-            logger.info("Signal d'arrêt reçu")
+            logger.info("Stop signal received")
             self.stop()
             sys.exit(0)
             
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
-        # Boucle principale
+        # Main loop
         try:
             while self.running:
                 self.scheduler.run_pending()
                 time.sleep(1)
         except Exception as e:
-            logger.error(f"Erreur dans la boucle principale: {str(e)}")
-            self.stop()
-        finally:
-            if self.running:
-                self.stop() 
+            logger.error(f"Error in main loop: {str(e)}")
+            self.stop() 
